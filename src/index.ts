@@ -128,16 +128,22 @@ function convertResponse(geminiResp: any, model: string, stream: boolean): any {
   const content = candidate.content || {}
   const parts = content.parts || []
   
-  // Extract text from parts
+  // Separate thoughts from actual content (Gemma 4 uses thought: true)
   let text = ''
+  let thoughts = ''
   for (const part of parts) {
-    if (part.text) text += part.text
+    if (part.thought) {
+      // This is a thinking/reasoning part - skip for main content
+      if (part.text) thoughts += part.text
+    } else if (part.text) {
+      text += part.text
+    }
   }
   
   const finishReason = candidate.finishReason === 'STOP' ? 'stop' : candidate.finishReason?.toLowerCase() || 'stop'
   
   if (stream) {
-    // Streaming format
+    // Streaming format - only return non-thought content
     return {
       id: `chatcmpl-${Date.now()}`,
       object: 'chat.completion.chunk',
@@ -150,7 +156,12 @@ function convertResponse(geminiResp: any, model: string, stream: boolean): any {
       }]
     }
   } else {
-    // Non-streaming format
+    // Non-streaming format - include thoughts in reasoning_content if present
+    const message: any = { role: 'assistant', content: text }
+    if (thoughts) {
+      message.reasoning_content = thoughts
+    }
+    
     return {
       id: `chatcmpl-${Date.now()}`,
       object: 'chat.completion',
@@ -158,7 +169,7 @@ function convertResponse(geminiResp: any, model: string, stream: boolean): any {
       model,
       choices: [{
         index: 0,
-        message: { role: 'assistant', content: text },
+        message,
         finish_reason: finishReason
       }],
       usage: {
@@ -304,6 +315,9 @@ app.post('/v1/chat/completions', async (c) => {
                       const parts = geminiChunk.candidates?.[0]?.content?.parts || []
                       
                       for (const part of parts) {
+                        // Skip thought parts (Gemma 4 reasoning)
+                        if (part.thought) continue
+                        
                         if (part.text) {
                           const openaiChunk = {
                             id: `chatcmpl-${Date.now()}`,
