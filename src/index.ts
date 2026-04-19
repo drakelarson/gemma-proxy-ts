@@ -215,8 +215,7 @@ app.post('/v1/chat/completions', async (c) => {
     // Retry logic for 500 errors
     const MAX_RETRIES = 3
     const RETRY_DELAY_MS = 1000
-    let response: Response
-    let lastError: { status: number; text: string } | null = null
+    let response: Response | null = null
     
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const res = await fetch(url, {
@@ -234,23 +233,23 @@ app.post('/v1/chat/completions', async (c) => {
       
       // Only retry on 500 (internal server error)
       if (res.status === 500 && attempt < MAX_RETRIES - 1) {
-        console.log(`[GEMINI-PROXY] 500 error, retry ${attempt + 1}/${MAX_RETRIES} after ${RETRY_DELAY_MS}ms`)
+        console.log(`[GEMINI-PROXY] 500 error, retry ${attempt + 1}/${MAX_RETRIES} after ${RETRY_DELAY_MS * (attempt + 1)}ms`)
         await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1))) // Exponential backoff
-        lastError = { status: res.status, text: errorText }
         continue
       }
       
-      // Non-500 error or final attempt failed
-      if (!res.ok) {
-        console.error(`[GEMINI-PROXY] Error ${res.status}: ${errorText}`)
-        totalErrors++
-        return c.json({ 
-          error: `Gemini API error: ${res.status}`,
-          details: errorText
-        }, res.status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503)
-      }
-      
-      response = res
+      // Non-500 error or final attempt failed - return error immediately
+      console.error(`[GEMINI-PROXY] Error ${res.status}: ${errorText}`)
+      totalErrors++
+      return c.json({ 
+        error: `Gemini API error: ${res.status}`,
+        details: errorText
+      }, res.status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503)
+    }
+    
+    // Should never happen, but TypeScript needs this check
+    if (!response) {
+      return c.json({ error: 'No response from Gemini API' }, 502)
     }
     
     if (stream) {
