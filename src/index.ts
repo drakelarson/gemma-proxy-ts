@@ -98,7 +98,10 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
         parts.push({
           functionCall: {
             name: tc.function.name,
-            args: JSON.parse(tc.function.arguments)
+            args: (() => {
+              try { return JSON.parse(tc.function.arguments) }
+              catch { return tc.function.arguments }  // Return as string if not valid JSON
+            })()
           }
         })
       }
@@ -111,7 +114,10 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
       parts.push({
         functionResponse: {
           name: msg.name || msg.tool_call_id,
-          response: typeof msg.content === 'string' ? JSON.parse(msg.content || '{}') : msg.content
+          response: typeof msg.content === 'string' ? (() => {
+              try { return JSON.parse(msg.content || '{}') }
+              catch { return { result: msg.content } }  // Wrap non-JSON as result object
+            })() : msg.content
         }
       })
     }
