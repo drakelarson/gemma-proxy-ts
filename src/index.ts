@@ -21,13 +21,18 @@ if (!API_KEY) {
 }
 
 // Model name mapping (OpenAI-style to Gemini)
+// Use stable model names for production
 const MODEL_MAP: Record<string, string> = {
-  'gemini-2.5-pro': 'gemini-2.5-pro-preview-06-05',
-  'gemini-2.5-flash': 'gemini-2.5-flash-preview-05-20',
-  'gemini-2.0-flash': 'gemini-2.0-flash',
+  'gemini-2.5-pro': 'gemini-2.5-pro',
+  'gemini-2.5-flash': 'gemini-2.5-flash',
+  'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
+  'gemini-3-flash-preview': 'gemini-3-flash-preview',
+  'gemini-3.1-pro-preview': 'gemini-3.1-pro-preview',
+  'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite-preview',
+  // Legacy aliases
   'gemini-1.5-pro': 'gemini-1.5-pro',
   'gemini-1.5-flash': 'gemini-1.5-flash',
-  'gemma-3-27b-it': 'gemma-3-27b-it',
+  'gemini-2.0-flash': 'gemini-2.0-flash',
 }
 
 let totalRequests = 0
