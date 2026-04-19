@@ -156,6 +156,16 @@ function stripOpenAIFields(schema: any): any {
   for (const [key, value] of Object.entries(schema)) {
     // Skip OpenAI-specific fields that Gemini doesn't support
     if (key === 'additionalProperties' || key === '$schema' || key === 'strict') continue
+    
+    // Filter out empty strings from enum arrays (Gemini rejects them)
+    if (key === 'enum' && Array.isArray(value)) {
+      const filtered = value.filter((v: any) => v !== '')
+      if (filtered.length > 0) {
+        result[key] = filtered
+      }
+      continue
+    }
+    
     result[key] = stripOpenAIFields(value)
   }
   return result
@@ -303,7 +313,7 @@ app.post('/v1/chat/completions', async (c) => {
       geminiRequest.generationConfig.maxOutputTokens = rest.max_tokens
     }
     if (rest.stop !== undefined) {
-      geminiRequest.generationConfig.stopSequences = Array.isArray(rest.stop) ? rest.stop : [rest.stop]
+      geminiRequest.generationConfig.stopSequences = Array.isArray(rest.stop) ? rest.stop.filter(Boolean) : [rest.stop]
     }
     
     console.log(`[GEMINI-PROXY] POST /v1/chat/completions → model=${geminiModel}, stream=${stream}`)
