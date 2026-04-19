@@ -111,13 +111,29 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
     }
     // Handle tool response
     else if (role === 'tool') {
+      // Parse tool response content
+      let responseContent: any
+      if (typeof msg.content === 'string') {
+        try {
+          responseContent = JSON.parse(msg.content || '{}')
+        } catch {
+          // Non-JSON content - wrap as content string
+          responseContent = { content: msg.content }
+        }
+      } else {
+        responseContent = msg.content || {}
+      }
+      
+      // Gemini's response field MUST be an object, not an array
+      // If responseContent is an array, wrap it in an object
+      if (Array.isArray(responseContent)) {
+        responseContent = { result: responseContent }
+      }
+      
       parts.push({
         functionResponse: {
           name: msg.name || msg.tool_call_id,
-          response: typeof msg.content === 'string' ? (() => {
-              try { return JSON.parse(msg.content || '{}') }
-              catch { return { result: msg.content } }  // Wrap non-JSON as result object
-            })() : msg.content
+          response: responseContent
         }
       })
     }
