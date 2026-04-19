@@ -84,12 +84,38 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
       continue
     }
     
-    // Map roles: assistant -> model, user -> user
-    const geminiRole = role === 'assistant' ? 'model' : 'user'
+    // Map roles: assistant -> model, user -> user, tool -> user (with functionResponse)
+    let geminiRole = 'user'
+    if (role === 'assistant') geminiRole = 'model'
+    else if (role === 'tool') geminiRole = 'user'
     
     // Handle content (string or array)
     const parts: any[] = []
-    if (typeof msg.content === 'string') {
+    
+    // Handle tool calls in assistant message
+    if (role === 'assistant' && msg.tool_calls) {
+      for (const tc of msg.tool_calls) {
+        parts.push({
+          functionCall: {
+            name: tc.function.name,
+            args: JSON.parse(tc.function.arguments)
+          }
+        })
+      }
+      if (msg.content) {
+        parts.push({ text: msg.content })
+      }
+    }
+    // Handle tool response
+    else if (role === 'tool') {
+      parts.push({
+        functionResponse: {
+          name: msg.name || msg.tool_call_id,
+          response: typeof msg.content === 'string' ? JSON.parse(msg.content || '{}') : msg.content
+        }
+      })
+    }
+    else if (typeof msg.content === 'string') {
       if (msg.content) parts.push({ text: msg.content })
     } else if (Array.isArray(msg.content)) {
       // Handle multimodal content (text + images)
@@ -121,6 +147,25 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
   return { contents, systemInstruction }
 }
 
+// Convert OpenAI tools to Gemini function declarations
+function convertTools(openaiTools: any[]): any[] {
+  if (!openaiTools || openaiTools.length === 0) return []
+  
+  const functionDeclarations = openaiTools.map(tool => {
+    if (tool.type === 'function') {
+      const fn = tool.function
+      return {
+        name: fn.name,
+        description: fn.description || '',
+        parameters: fn.parameters || { type: 'object', properties: {} }
+      }
+    }
+    return null
+  }).filter(Boolean)
+  
+  return functionDeclarations
+}
+
 // Convert Gemini response to OpenAI format
 function convertResponse(geminiResp: any, model: string, stream: boolean): any {
   const candidates = geminiResp.candidates || []
@@ -131,16 +176,29 @@ function convertResponse(geminiResp: any, model: string, stream: boolean): any {
   // Separate thoughts from actual content (Gemma 4 uses thought: true)
   let text = ''
   let thoughts = ''
+  const toolCalls: any[] = []
+  
   for (const part of parts) {
     if (part.thought) {
       // This is a thinking/reasoning part - skip for main content
       if (part.text) thoughts += part.text
+    } else if (part.functionCall) {
+      // Function call - convert to OpenAI tool_calls format
+      toolCalls.push({
+        id: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: 'function',
+        function: {
+          name: part.functionCall.name,
+          arguments: JSON.stringify(part.functionCall.args || {})
+        }
+      })
     } else if (part.text) {
       text += part.text
     }
   }
   
-  const finishReason = candidate.finishReason === 'STOP' ? 'stop' : candidate.finishReason?.toLowerCase() || 'stop'
+  const finishReason = candidate.finishReason === 'STOP' ? 'stop' : 
+    (toolCalls.length > 0 ? 'tool_calls' : candidate.finishReason?.toLowerCase() || 'stop')
   
   if (stream) {
     // Streaming format - only return non-thought content
@@ -157,9 +215,12 @@ function convertResponse(geminiResp: any, model: string, stream: boolean): any {
     }
   } else {
     // Non-streaming format - include thoughts in reasoning_content if present
-    const message: any = { role: 'assistant', content: text }
+    const message: any = { role: 'assistant', content: text || null }
     if (thoughts) {
       message.reasoning_content = thoughts
+    }
+    if (toolCalls.length > 0) {
+      message.tool_calls = toolCalls
     }
     
     return {
@@ -199,6 +260,9 @@ app.post('/v1/chat/completions', async (c) => {
     // Convert messages
     const { contents, systemInstruction } = convertMessages(messages)
     
+    // Convert tools if provided
+    const tools = rest.tools ? convertTools(rest.tools) : []
+    
     // Build Gemini request
     const geminiRequest: any = {
       contents,
@@ -207,6 +271,11 @@ app.post('/v1/chat/completions', async (c) => {
     
     if (systemInstruction) {
       geminiRequest.systemInstruction = systemInstruction
+    }
+    
+    // Add tools if provided
+    if (tools.length > 0) {
+      geminiRequest.tools = [{ functionDeclarations: tools }]
     }
     
     // Map OpenAI params to Gemini params
@@ -315,8 +384,33 @@ app.post('/v1/chat/completions', async (c) => {
                       const parts = geminiChunk.candidates?.[0]?.content?.parts || []
                       
                       for (const part of parts) {
+                        // Handle function calls in streaming
+                        if (part.functionCall) {
+                          const toolCallChunk = {
+                            id: `chatcmpl-${Date.now()}`,
+                            object: 'chat.completion.chunk',
+                            created: Math.floor(Date.now() / 1000),
+                            model: requestedModel,
+                            choices: [{
+                              index: 0,
+                              delta: {
+                                tool_calls: [{
+                                  index: 0,
+                                  id: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                                  type: 'function',
+                                  function: {
+                                    name: part.functionCall.name,
+                                    arguments: JSON.stringify(part.functionCall.args || {})
+                                  }
+                                }]
+                              },
+                              finish_reason: null
+                            }]
+                          }
+                          controller.enqueue(encoder.encode(`data: ${JSON.stringify(toolCallChunk)}\n\n`))
+                        }
                         // Separate thoughts from content
-                        if (part.thought && part.text) {
+                        else if (part.thought && part.text) {
                           // Thinking/reasoning part - send in reasoning_content
                           const thoughtChunk = {
                             id: `chatcmpl-${Date.now()}`,
