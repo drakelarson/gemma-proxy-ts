@@ -401,6 +401,7 @@ app.post('/v1/chat/completions', async (c) => {
       const decoder = new TextDecoder()
       let buffer = ''
       let hadToolCall = false  // Track if we had tool calls
+      let isFirstChunk = true  // Track first chunk for full metadata
       
       return new Response(
         new ReadableStream({
@@ -411,16 +412,16 @@ app.post('/v1/chat/completions', async (c) => {
                 if (done) {
                   // Send final chunk with correct finish_reason
                   const finalFinishReason = hadToolCall ? 'tool_calls' : 'stop'
-                  controller.enqueue(encoder.encode(`data: {"id":"chatcmpl-${Date.now()}","object":"chat.completion.chunk","created":${Math.floor(Date.now()/1000)},"model":"${requestedModel}","choices":[{"index":0,"delta":{},"finish_reason":"${finalFinishReason}"}]}\n\n`))
-                  controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+                  controller.enqueue(encoder.encode(`data: {"choices":[{"delta":{},"finish_reason":"${finalFinishReason}"}]}\\n\\n`))
+                  controller.enqueue(encoder.encode('data: [DONE]\\n\\n'))
                   break
                 }
                 
                 buffer += decoder.decode(value, { stream: true })
                 
                 // Process complete SSE events from buffer
-                const lines = buffer.split('\n')
-                buffer = lines.pop() || '' // Keep incomplete line in buffer
+                const lines = buffer.split('\\n')
+                buffer = lines.pop() || ''
                 
                 for (const line of lines) {
                   if (line.startsWith('data: ')) {
@@ -432,68 +433,86 @@ app.post('/v1/chat/completions', async (c) => {
                       const parts = geminiChunk.candidates?.[0]?.content?.parts || []
                       
                       for (const part of parts) {
-                        // Handle function calls in streaming
                         if (part.functionCall) {
-                          hadToolCall = true  // Mark that we had a tool call
-                          const toolCallChunk = {
-                            id: `chatcmpl-${Date.now()}`,
-                            object: 'chat.completion.chunk',
-                            created: Math.floor(Date.now() / 1000),
-                            model: requestedModel,
-                            choices: [{
-                              index: 0,
-                              delta: {
-                                tool_calls: [{
+                          hadToolCall = true
+                          // Minimal chunk for tool calls
+                          const toolCallChunk = isFirstChunk 
+                            ? {
+                                id: `chatcmpl-${Date.now()}`,
+                                object: 'chat.completion.chunk',
+                                created: Math.floor(Date.now() / 1000),
+                                model: requestedModel,
+                                choices: [{
                                   index: 0,
-                                  id: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                                  type: 'function',
-                                  function: {
-                                    name: part.functionCall.name,
-                                    arguments: JSON.stringify(part.functionCall.args || {})
+                                  delta: {
+                                    tool_calls: [{
+                                      index: 0,
+                                      id: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                                      type: 'function',
+                                      function: {
+                                        name: part.functionCall.name,
+                                        arguments: JSON.stringify(part.functionCall.args || {})
+                                      }
+                                    }]
+                                  },
+                                  finish_reason: null
+                                }]
+                              }
+                            : {
+                                choices: [{
+                                  delta: {
+                                    tool_calls: [{
+                                      index: 0,
+                                      function: {
+                                        name: part.functionCall.name,
+                                        arguments: JSON.stringify(part.functionCall.args || {})
+                                      }
+                                    }]
                                   }
                                 }]
-                              },
-                              finish_reason: null
-                            }]
-                          }
-                          controller.enqueue(encoder.encode(`data: ${JSON.stringify(toolCallChunk)}\n\n`))
+                              }
+                          isFirstChunk = false
+                          controller.enqueue(encoder.encode(`data: ${JSON.stringify(toolCallChunk)}\\n\\n`))
                         }
-                        // Separate thoughts from content
                         else if (part.thought && part.text) {
-                          // Thinking/reasoning part - send in reasoning_content
-                          const thoughtChunk = {
-                            id: `chatcmpl-${Date.now()}`,
-                            object: 'chat.completion.chunk',
-                            created: Math.floor(Date.now() / 1000),
-                            model: requestedModel,
-                            choices: [{
-                              index: 0,
-                              delta: { reasoning_content: part.text },
-                              finish_reason: null
-                            }]
-                          }
-                          controller.enqueue(encoder.encode(`data: ${JSON.stringify(thoughtChunk)}\n\n`))
-                        } else if (part.text) {
-                          // Normal content
-                          const openaiChunk = {
-                            id: `chatcmpl-${Date.now()}`,
-                            object: 'chat.completion.chunk',
-                            created: Math.floor(Date.now() / 1000),
-                            model: requestedModel,
-                            choices: [{
-                              index: 0,
-                              delta: { content: part.text },
-                              finish_reason: null
-                            }]
-                          }
-                          controller.enqueue(encoder.encode(`data: ${JSON.stringify(openaiChunk)}\n\n`))
+                          // Minimal chunk for thoughts
+                          const thoughtChunk = isFirstChunk
+                            ? {
+                                id: `chatcmpl-${Date.now()}`,
+                                object: 'chat.completion.chunk',
+                                created: Math.floor(Date.now() / 1000),
+                                model: requestedModel,
+                                choices: [{
+                                  index: 0,
+                                  delta: { reasoning_content: part.text },
+                                  finish_reason: null
+                                }]
+                              }
+                            : { choices: [{ delta: { reasoning_content: part.text } }] }
+                          isFirstChunk = false
+                          controller.enqueue(encoder.encode(`data: ${JSON.stringify(thoughtChunk)}\\n\\n`))
+                        }
+                        else if (part.text) {
+                          // Minimal chunk for content
+                          const contentChunk = isFirstChunk
+                            ? {
+                                id: `chatcmpl-${Date.now()}`,
+                                object: 'chat.completion.chunk',
+                                created: Math.floor(Date.now() / 1000),
+                                model: requestedModel,
+                                choices: [{
+                                  index: 0,
+                                  delta: { content: part.text },
+                                  finish_reason: null
+                                }]
+                              }
+                            : { choices: [{ delta: { content: part.text } }] }
+                          isFirstChunk = false
+                          controller.enqueue(encoder.encode(`data: ${JSON.stringify(contentChunk)}\\n\\n`))
                         }
                       }
                     } catch (e) {
-                      // Log the problematic data for debugging
                       console.error('[GEMINI-PROXY] Parse error for data:', data.substring(0, 100))
-                      // Skip non-JSON lines gracefully (Gemini sometimes returns non-JSON)
-                      // Don't crash the whole stream, just skip this chunk
                     }
                   }
                 }
