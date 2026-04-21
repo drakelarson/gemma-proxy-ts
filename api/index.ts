@@ -267,7 +267,7 @@ function convertResponse(geminiResp: any, model: string, stream: boolean): any {
     }
   } else {
     // Non-streaming format - include thoughts in reasoning_content if present
-    const message: any = { role: 'assistant', content: text || null }
+    const message: any = { role: 'assistant', content: text || "" }
     if (thoughts) {
       message.reasoning_content = thoughts
     }
@@ -559,6 +559,10 @@ app.post('/v1/chat/completions', async (c) => {
     } else {
       // Non-streaming response
       const geminiResp = await response.json()
+      
+      // DEBUG: Log the full Gemini response
+      console.log(`[GEMINI-PROXY] DEBUG: Gemini Response: ${JSON.stringify(geminiResp).substring(0, 500)}`)
+      
       const openaiResp = convertResponse(geminiResp, requestedModel, false)
       
       console.log(`[GEMINI-PROXY] ← ${Date.now() - startTime}ms`)
