@@ -345,11 +345,12 @@ app.post('/v1/chat/completions', async (c) => {
     console.log(`[GEMINI-PROXY] POST /v1/chat/completions → model=${geminiModel}, stream=${stream}`)
     
     // Choose endpoint based on stream flag
-    // For streaming, use alt=sse to get SSE format from Gemini
+    // DON'T use alt=sse - it changes the format and can cause issues
+    // Use default streaming which returns JSON arrays that we process correctly
     const endpoint = stream 
-      ? `streamGenerateContent?alt=sse&key=${API_KEY}` 
-      : `generateContent?key=${API_KEY}`
-    const url = `${BASE_URL}/models/${geminiModel}:${endpoint}`
+      ? 'streamGenerateContent' 
+      : 'generateContent'
+    const url = `${BASE_URL}/models/${geminiModel}:${endpoint}?key=${API_KEY}`
     
     console.log(`[GEMINI-PROXY] → ${url.replace(API_KEY!, '[REDACTED]')}`)
     
@@ -394,7 +395,7 @@ app.post('/v1/chat/completions', async (c) => {
     }
     
     if (stream) {
-      // Real streaming - Gemini returns SSE with alt=sse
+      // Real streaming - Gemini returns NDJSON (one JSON object per line)
       // Read SSE stream and convert each Gemini event to OpenAI format
       const reader = response.body?.getReader()
       if (!reader) {
@@ -405,6 +406,10 @@ app.post('/v1/chat/completions', async (c) => {
       const decoder = new TextDecoder()
       let buffer = ''
       let hadToolCall = false
+      
+      // Buffer for incomplete tool call arguments
+      let pendingToolCall: any = null
+      let pendingArgsBuffer = ''
       
       return new Response(
         new ReadableStream({
@@ -448,23 +453,39 @@ app.post('/v1/chat/completions', async (c) => {
                 lastActivity = Date.now()
                 buffer += decoder.decode(value, { stream: true })
                 
+                // Gemini default streaming returns NDJSON (one JSON object per line)
+                // NOT SSE format - no "data: " prefix
                 const lines = buffer.split('\n')
                 buffer = lines.pop() || ''
                 
                 for (const line of lines) {
-                  if (line.startsWith('data: ')) {
-                    const data = line.slice(6).trim()
-                    if (!data || data === '[DONE]') continue
-                    
-                    lastActivity = Date.now()
-                    
-                    try {
-                      const geminiChunk = JSON.parse(data)
+                  const trimmed = line.trim()
+                  if (!trimmed || trimmed === '[DONE]') continue
+                  
+                  lastActivity = Date.now()
+                  
+                  try {
+                    // Each line is a complete JSON object from Gemini
+                    const geminiChunk = JSON.parse(trimmed)
                       const parts = geminiChunk.candidates?.[0]?.content?.parts || []
                       
                       for (const part of parts) {
                         if (part.functionCall) {
                           hadToolCall = true
+                          // Gemma 4 may emit malformed JSON in streaming - validate args
+                          let args = part.functionCall.args || {}
+                          let argsStr = ''
+                          try {
+                            argsStr = JSON.stringify(args)
+                            // Validate it's parseable
+                            JSON.parse(argsStr)
+                          } catch {
+                            // Invalid JSON from Gemma streaming - skip this malformed chunk
+                            // The complete valid chunk will come in a subsequent event
+                            console.warn('[GEMINI-PROXY] Skipping malformed tool call args, will retry on next chunk')
+                            continue
+                          }
+                          
                           const toolCallChunk = {
                             id: `chatcmpl-${Date.now()}`,
                             object: 'chat.completion.chunk',
@@ -479,7 +500,7 @@ app.post('/v1/chat/completions', async (c) => {
                                   type: 'function',
                                   function: {
                                     name: part.functionCall.name,
-                                    arguments: JSON.stringify(part.functionCall.args || {})
+                                    arguments: argsStr
                                   }
                                 }]
                               },
