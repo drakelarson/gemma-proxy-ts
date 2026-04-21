@@ -458,9 +458,9 @@ app.post('/v1/chat/completions', async (c) => {
                   stopHeartbeat()
                   const finalFinishReason = hadToolCall ? 'tool_calls' : 'stop'
                   
-                  // Flush buffered thoughts as reasoning_content BEFORE done chunk
-                  if (thoughtBuffer.length > 0) {
-                    const allThoughts = thoughtBuffer.join('')
+                  // Flush thought buffer as content (not reasoning_content - BYOK clients may not support it)
+                  const thoughtText = thoughtBuffer.join('')
+                  if (thoughtText) {
                     const thoughtChunk = {
                       id: `chatcmpl-${Date.now()}`,
                       object: 'chat.completion.chunk',
@@ -468,11 +468,26 @@ app.post('/v1/chat/completions', async (c) => {
                       model: requestedModel,
                       choices: [{
                         index: 0,
-                        delta: { reasoning_content: allThoughts },
+                        delta: { content: `\n\n[Thoughts]\n${thoughtText}` },
                         finish_reason: null
                       }]
                     }
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(thoughtChunk)}\n\n`))
+                    controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(thoughtChunk)}\n\n`))
+                  }
+                  // Send final content buffer
+                  if (fullContent) {
+                    const contentChunk = {
+                      id: `chatcmpl-${Date.now()}`,
+                      object: 'chat.completion.chunk',
+                      created: Math.floor(Date.now() / 1000),
+                      model: requestedModel,
+                      choices: [{
+                        index: 0,
+                        delta: { content: fullContent },
+                        finish_reason: null
+                      }]
+                    }
+                    controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(contentChunk)}\n\n`))
                   }
                   
                   // Construct a minimal "done" chunk. 
