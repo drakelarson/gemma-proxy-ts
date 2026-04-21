@@ -106,7 +106,20 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
             name: tc.function.name,
             args: (() => {
               try { return JSON.parse(tc.function.arguments) }
-              catch { return tc.function.arguments }  // Return as string if not valid JSON
+              catch {
+                // Try to extract individual JSON objects from concatenated string
+                const argStr = tc.function.arguments
+                const matches = argStr.match(/\{[^{}]*\}/g)
+                if (matches && matches.length > 0) {
+                  try {
+                    // Parse the first complete JSON object found
+                    return JSON.parse(matches[0])
+                  } catch {
+                    return {}
+                  }
+                }
+                return {}
+              }
             })()
           }
         })
