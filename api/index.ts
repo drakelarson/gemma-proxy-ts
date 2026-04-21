@@ -511,8 +511,6 @@ app.post('/v1/chat/completions', async (c) => {
                           controller.enqueue(encoder.encode(`data: ${JSON.stringify(toolCallChunk)}\n\n`))
                         } else if (part.thought && part.text) {
                           // Thought content - include as reasoning_content in delta
-                          // TEMP DISABLE: Remove reasoning_content to see if it fixes client "Invalid Response"
-                          /*
                           const thoughtChunk = {
                             id: `chatcmpl-${Date.now()}`,
                             object: 'chat.completion.chunk',
@@ -525,7 +523,6 @@ app.post('/v1/chat/completions', async (c) => {
                             }]
                           }
                           controller.enqueue(encoder.encode(`data: ${JSON.stringify(thoughtChunk)}\n\n`))
-                          */
                         } else if (part.text && part.text.includes('THOUGHT:')) {
                           // Gemini 2.5 may emit THOUGHT: prefix in text - strip it and send as reasoning_content
                           const thoughtText = part.text.replace(/THOUGHT:\s*/gi, '')
