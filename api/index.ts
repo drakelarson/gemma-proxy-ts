@@ -442,7 +442,21 @@ app.post('/v1/chat/completions', async (c) => {
                 if (done) {
                   stopHeartbeat()
                   const finalFinishReason = hadToolCall ? 'tool_calls' : 'stop'
-                  controller.enqueue(encoder.encode(`data: {"id":"chatcmpl-${Date.now()}","object":"chat.completion.chunk","created":${Math.floor(Date.now()/1000)},"model":"${requestedModel}","choices":[{"index":0,"delta":{},"finish_reason":"${finalFinishReason}"}]}\n\n`))
+                  
+                  // Construct a minimal "done" chunk. 
+                  // Some clients fail if delta is empty.
+                  const doneChunk = {
+                    id: `chatcmpl-${Date.now()}`,
+                    object: 'chat.completion.chunk',
+                    created: Math.floor(Date.now()/1000),
+                    model: requestedModel,
+                    choices: [{
+                      index: 0,
+                      delta: {}, 
+                      finish_reason: finalFinishReason
+                    }]
+                  }
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(doneChunk)}\n\n`))
                   controller.enqueue(encoder.encode('data: [DONE]\n\n'))
                   break
                 }
@@ -458,6 +472,9 @@ app.post('/v1/chat/completions', async (c) => {
                     const data = line.slice(6).trim()
                     if (!data || data === '[DONE]') continue
                     
+                    // DEBUG: Log raw data string for complete visibility
+                    console.error(`[GEMINI-PROXY] DEBUG: RAW DATA: ${data}`)
+                    
                     lastActivity = Date.now()
                     
                     try {
@@ -465,7 +482,9 @@ app.post('/v1/chat/completions', async (c) => {
                       const parts = geminiChunk.candidates?.[0]?.content?.parts || []
                       
                       for (const part of parts) {
-                        console.log(`[GEMINI-PROXY] DEBUG: Streaming part: ${JSON.stringify(part)}`)
+                        // FORCE log to error to ensure capture in Vercel logs
+                        console.error(`[GEMINI-PROXY] DEBUG: Processing part: ${JSON.stringify(part)}`)
+                        
                         if (part.functionCall) {
                           hadToolCall = true
                           const toolCallChunk = {
@@ -492,6 +511,8 @@ app.post('/v1/chat/completions', async (c) => {
                           controller.enqueue(encoder.encode(`data: ${JSON.stringify(toolCallChunk)}\n\n`))
                         } else if (part.thought && part.text) {
                           // Thought content - include as reasoning_content in delta
+                          // TEMP DISABLE: Remove reasoning_content to see if it fixes client "Invalid Response"
+                          /*
                           const thoughtChunk = {
                             id: `chatcmpl-${Date.now()}`,
                             object: 'chat.completion.chunk',
@@ -504,6 +525,7 @@ app.post('/v1/chat/completions', async (c) => {
                             }]
                           }
                           controller.enqueue(encoder.encode(`data: ${JSON.stringify(thoughtChunk)}\n\n`))
+                          */
                         } else if (part.text && part.text.includes('THOUGHT:')) {
                           // Gemini 2.5 may emit THOUGHT: prefix in text - strip it and send as reasoning_content
                           const thoughtText = part.text.replace(/THOUGHT:\s*/gi, '')
