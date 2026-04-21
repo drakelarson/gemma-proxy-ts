@@ -523,7 +523,8 @@ app.post('/v1/chat/completions', async (c) => {
                           }
                           controller.enqueue(encoder.encode(`data: ${JSON.stringify(toolCallChunk)}\n\n`))
                         } else if (part.thought && part.text) {
-                          // Thought content - include as reasoning_content in delta
+                          // Gemma thought content - prepend tag so client can identify it
+                          // (don't use reasoning_content as it's not in standard OpenAI chunk schema)
                           const thoughtChunk = {
                             id: `chatcmpl-${Date.now()}`,
                             object: 'chat.completion.chunk',
@@ -531,7 +532,7 @@ app.post('/v1/chat/completions', async (c) => {
                             model: requestedModel,
                             choices: [{
                               index: 0,
-                              delta: { reasoning_content: part.text },
+                              delta: { content: `[Gemma Thought]\n${part.text}` },
                               finish_reason: null
                             }]
                           }
