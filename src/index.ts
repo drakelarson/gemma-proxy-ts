@@ -41,6 +41,10 @@ const MODEL_MAP: Record<string, string> = {
   'gemma-3-27b-it': 'gemma-3-27b-it',
 }
 
+// Heartbeat for keep-alive during streaming
+const HEARTBEAT_INTERVAL_MS = 3000
+const HEARTBEAT_BYTE = ': keep-alive\n\n'
+
 let totalRequests = 0
 let totalErrors = 0
 
@@ -405,16 +409,42 @@ app.post('/v1/chat/completions', async (c) => {
       return new Response(
         new ReadableStream({
           async start(controller) {
+            // Track last activity time for keep-alive heartbeats
+            let lastActivity = Date.now()
+            let heartbeatTimer: any = null
+            
+            // Start heartbeat to prevent connection drops
+            const startHeartbeat = () => {
+              heartbeatTimer = setInterval(() => {
+                const now = Date.now()
+                // Send keep-alive if no activity for 3 seconds
+                if (now - lastActivity >= HEARTBEAT_INTERVAL_MS) {
+                  controller.enqueue(encoder.encode(HEARTBEAT_BYTE))
+                }
+              }, HEARTBEAT_INTERVAL_MS)
+            }
+            
+            const stopHeartbeat = () => {
+              if (heartbeatTimer) {
+                clearInterval(heartbeatTimer)
+                heartbeatTimer = null
+              }
+            }
+            
+            startHeartbeat()
+            
             try {
               while (true) {
                 const { done, value } = await reader.read()
                 if (done) {
+                  stopHeartbeat()
                   const finalFinishReason = hadToolCall ? 'tool_calls' : 'stop'
                   controller.enqueue(encoder.encode(`data: {"id":"chatcmpl-${Date.now()}","object":"chat.completion.chunk","created":${Math.floor(Date.now()/1000)},"model":"${requestedModel}","choices":[{"index":0,"delta":{},"finish_reason":"${finalFinishReason}"}]}\n\n`))
                   controller.enqueue(encoder.encode('data: [DONE]\n\n'))
                   break
                 }
                 
+                lastActivity = Date.now()
                 buffer += decoder.decode(value, { stream: true })
                 
                 const lines = buffer.split('\n')
@@ -424,6 +454,8 @@ app.post('/v1/chat/completions', async (c) => {
                   if (line.startsWith('data: ')) {
                     const data = line.slice(6).trim()
                     if (!data || data === '[DONE]') continue
+                    
+                    lastActivity = Date.now()
                     
                     try {
                       const geminiChunk = JSON.parse(data)
@@ -468,7 +500,6 @@ app.post('/v1/chat/completions', async (c) => {
                           }
                           controller.enqueue(encoder.encode(`data: ${JSON.stringify(thoughtChunk)}\n\n`))
                         } else if (part.text) {
-                          // Simple compact chunk - just the essential data
                           const openaiChunk = {
                             id: `chatcmpl-${Date.now()}`,
                             object: 'chat.completion.chunk',
@@ -492,6 +523,7 @@ app.post('/v1/chat/completions', async (c) => {
               console.log(`[GEMINI-PROXY] ← ${Date.now() - startTime}ms (streamed)`)
             } catch (e) {
               console.error('[GEMINI-PROXY] Stream error:', e)
+              stopHeartbeat()
               controller.close()
             }
           }
