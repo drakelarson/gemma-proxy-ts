@@ -557,8 +557,20 @@ app.post('/v1/chat/completions', async (c) => {
                           }
                           controller.enqueue(encoder.encode(`data: ${JSON.stringify(toolCallChunk)}\n\n`))
                         } else if (part.thought && part.text) {
-                          // Buffer thought text only
-                          thoughtBuffer.push(part.text)
+                          // Send thought as thinking tag block for UI recognition
+                          const thoughtChunk = {
+                            id: `chatcmpl-${Date.now()}`,
+                            object: 'chat.completion.chunk',
+                            created: Math.floor(Date.now() / 1000),
+                            model,
+                            choices: [{
+                              index: 0,
+                              delta: { content: `<thinking>${part.text}</thinking>` },
+                              finish_reason: null
+                            }]
+                          }
+                          controller.enqueue(encoder.encode(`data: ${JSON.stringify(thoughtChunk)}\n\n`))
+                          continue
                         } else if (part.text) {
                           // Buffer content text
                           fullContent += part.text
