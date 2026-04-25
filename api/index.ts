@@ -331,7 +331,11 @@ app.post('/v1/chat/completions', async (c) => {
     // Build Gemini request
     const geminiRequest: any = {
       contents,
-      generationConfig: {}
+      generationConfig: {
+        thinkingConfig: {
+          thinkingLevel: "high"
+        }
+      }
     }
     
     if (systemInstruction) {
