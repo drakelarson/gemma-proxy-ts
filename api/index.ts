@@ -107,12 +107,10 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
             args: (() => {
               try { return JSON.parse(tc.function.arguments) }
               catch {
-                // Try to extract individual JSON objects from concatenated string
                 const argStr = tc.function.arguments
                 const matches = argStr.match(/\{[^{}]*\}/g)
                 if (matches && matches.length > 0) {
                   try {
-                    // Parse the first complete JSON object found
                     return JSON.parse(matches[0])
                   } catch {
                     return {}
@@ -124,7 +122,16 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
           }
         })
       }
-      if (msg.content) {
+      // Add content if present (ignore reasoning_content - Gemini generates thoughts fresh)
+      if (msg.content && typeof msg.content === 'string' && msg.content.trim()) {
+        parts.push({ text: msg.content })
+      }
+    }
+    // Handle assistant message without tool calls (ignore reasoning_content)
+    else if (role === 'assistant') {
+      // reasoning_content is ignored - Gemini generates thoughts fresh each turn
+      // Only send actual content to Gemini
+      if (msg.content && typeof msg.content === 'string' && msg.content.trim()) {
         parts.push({ text: msg.content })
       }
     }
