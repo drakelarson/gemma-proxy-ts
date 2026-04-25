@@ -557,21 +557,10 @@ app.post('/v1/chat/completions', async (c) => {
                           }
                           controller.enqueue(encoder.encode(`data: ${JSON.stringify(toolCallChunk)}\n\n`))
                         } else if (part.thought && part.text) {
-                          // Send thought as content immediately
-                          const thoughtChunk = {
-                            id: `chatcmpl-${Date.now()}`,
-                            object: 'chat.completion.chunk',
-                            created: Math.floor(Date.now() / 1000),
-                            model: requestedModel,
-                            choices: [{
-                              index: 0,
-                              delta: { content: `[Thoughts] ${part.text}` },
-                              finish_reason: null
-                            }]
-                          }
-                          controller.enqueue(encoder.encode(`data: ${JSON.stringify(thoughtChunk)}\n\n`))
+                          // Buffer thought text only
+                          thoughtBuffer.push(part.text)
                         } else if (part.text) {
-                          // Normal text chunk - buffer it
+                          // Buffer content text
                           fullContent += part.text
                           // Don't send individual chunks - buffer for final emission
                         }
