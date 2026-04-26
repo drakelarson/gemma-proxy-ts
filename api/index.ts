@@ -565,7 +565,7 @@ app.post('/v1/chat/completions', async (c) => {
                             id: `chatcmpl-${Date.now()}`,
                             object: 'chat.completion.chunk',
                             created: Math.floor(Date.now() / 1000),
-                            model: geminiModel,
+                            model: requestedModel,
                             choices: [{
                               index: 0,
                               delta: { reasoning_content: part.text },
