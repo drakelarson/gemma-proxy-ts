@@ -546,6 +546,7 @@ app.post('/v1/chat/completions', async (c) => {
                         
                         if (part.functionCall) {
                           hadToolCall = true
+                          console.error(`[GEMINI-PROXY] DEBUG: Processing functionCall: ${JSON.stringify(part.functionCall)}`)
                           const toolCallChunk = {
                             id: `chatcmpl-${Date.now()}`,
                             object: 'chat.completion.chunk',
