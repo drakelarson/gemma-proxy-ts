@@ -120,11 +120,12 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
         parts.push({
           functionCall: {
             name: tc.function.name,
-            args: (() => {
-              try { return JSON.parse(tc.function.arguments) }
-              catch {
+            arguments: (() => {
+              try {
+                return JSON.parse(tc.function.arguments || '{}')
+              } catch {
                 const argStr = tc.function.arguments
-                const matches = argStr.match(/\{[^{}]*\}/g)
+                const matches = argStr.match(/\\{[^{}]*\\}/g)
                 if (matches && matches.length > 0) {
                   try {
                     return JSON.parse(matches[0])
@@ -135,9 +136,6 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
                 return {}
               }
             })(),
-            // Use provided signature or dummy to pass Gemini validation
-            // Per docs: "skip_thought_signature_validator" bypasses validation
-            thoughtSignature: tc.extra_content?.google?.thoughtSignature || "skip_thought_signature_validator"
           }
         })
       }
