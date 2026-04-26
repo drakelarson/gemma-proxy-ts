@@ -292,7 +292,7 @@ function convertResponse(geminiResp: any, model: string, stream: boolean): any {
 
       toolCalls.push(tc)
       toolCallIdx++
-    } else if (part.text) {
+    } else if (part.text && part.text.trim()) {
       text += part.text
     }
   }
@@ -583,7 +583,7 @@ app.post('/v1/chat/completions', async (c) => {
                           }
                           controller.enqueue(encoder.encode(`data: ${JSON.stringify(thoughtChunk)}\n\n`))
                           continue
-                        } else if (part.text) {
+                        } else if (part.text && part.text.trim()) {
                           // Stream content chunks immediately instead
                           const contentChunk = {
                             id: `chatcmpl-${Date.now()}`,
