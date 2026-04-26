@@ -282,7 +282,7 @@ function convertResponse(geminiResp: any, model: string, stream: boolean): any {
       // Function call - convert to OpenAI tool_calls format
       // Use counter + timestamp + random for truly unique IDs
       const tc: any = {
-        id: part.functionCall.id || `call_${Date.now()}_${toolCallIdx}_${Math.random().toString(36).substr(2, 9)}`,
+        id: `call_${Date.now()}_${toolCallIdx}_${Math.random().toString(36).substr(2, 9)}`,
         type: 'function',
         function: {
           name: part.functionCall.name,
@@ -561,7 +561,7 @@ app.post('/v1/chat/completions', async (c) => {
                               delta: {
                                 tool_calls: [{
                                   index: toolCallIndex,
-                                  id: part.functionCall.id || `call_${Date.now()}_${toolCallIndex}_${Math.random().toString(36).substr(2, 9)}`,
+                                  id: `call_${Date.now()}_${toolCallIndex}_${Math.random().toString(36).substr(2, 9)}`,
                                   type: 'function',
                                   function: {
                                     name: part.functionCall.name,
