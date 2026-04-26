@@ -385,9 +385,10 @@ app.post('/v1/chat/completions', async (c) => {
     // Map OpenAI params to Gemini params
     // Hardcode temperature to 1.2 - do not allow override
     geminiRequest.generationConfig.temperature = 1.0
-    if (rest.top_p !== undefined) {
-      geminiRequest.generationConfig.topP = rest.top_p
-    }
+    
+    // Hardcode top_p to 0.9 (no override)
+    geminiRequest.generationConfig.topP = 0.9
+    
     if (rest.top_k !== undefined) {
       geminiRequest.generationConfig.topK = rest.top_k
     }
