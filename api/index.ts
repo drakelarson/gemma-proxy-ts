@@ -540,7 +540,9 @@ app.post('/v1/chat/completions', async (c) => {
                       
                       for (const part of parts) {
                         // FORCE log to error to ensure capture in Vercel logs
-                        console.error(`[GEMINI-PROXY] DEBUG: Processing part: ${JSON.stringify(part)}`)
+                        if (part.text && part.text.trim()) {
+                          console.error(`[GEMINI-PROXY] DEBUG: Processing part: ${JSON.stringify(part)}`)
+                        }
                         
                         if (part.functionCall) {
                           hadToolCall = true
