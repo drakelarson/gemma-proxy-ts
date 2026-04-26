@@ -120,7 +120,7 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
         parts.push({
           functionCall: {
             name: tc.function.name,
-            arguments: (() => {
+            args: (() => {
               try {
                 return JSON.parse(tc.function.arguments || '{}')
               } catch {
