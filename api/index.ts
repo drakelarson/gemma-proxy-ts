@@ -82,6 +82,18 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
   const contents: any[] = []
   let systemInstruction: any = undefined
   
+  // Build a map of tool_call_id -> function name for tool responses
+  const toolCallIdToName: Map<string, string> = new Map()
+  for (const msg of openaiMessages) {
+    if (msg.role === 'assistant' && msg.tool_calls) {
+      for (const tc of msg.tool_calls) {
+        if (tc.id && tc.function?.name) {
+          toolCallIdToName.set(tc.id, tc.function.name)
+        }
+      }
+    }
+  }
+  
   for (const msg of openaiMessages) {
     const role = msg.role
     
@@ -140,6 +152,9 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
     }
     // Handle tool response
     else if (role === 'tool') {
+      // Get function name from our lookup map
+      const functionName = msg.name || toolCallIdToName.get(msg.tool_call_id) || 'unknown_function'
+      
       // Parse tool response content
       let responseContent: any
       if (typeof msg.content === 'string') {
@@ -165,7 +180,7 @@ function convertMessages(openaiMessages: any[]): { contents: any[], systemInstru
       
       parts.push({
         functionResponse: {
-          name: msg.name || msg.tool_call_id,
+          name: functionName,
           response: responseContent
         }
       })
@@ -256,6 +271,7 @@ function convertResponse(geminiResp: any, model: string, stream: boolean): any {
   let text = ''
   let thoughts = ''
   const toolCalls: any[] = []
+  let toolCallIdx = 0  // Use counter for unique IDs
   
   for (const part of parts) {
     if (part.thought) {
@@ -263,14 +279,16 @@ function convertResponse(geminiResp: any, model: string, stream: boolean): any {
       if (part.text) thoughts += part.text
     } else if (part.functionCall) {
       // Function call - convert to OpenAI tool_calls format
+      // Use counter + timestamp + random for truly unique IDs
       toolCalls.push({
-        id: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: `call_${Date.now()}_${toolCallIdx}_${Math.random().toString(36).substr(2, 9)}`,
         type: 'function',
         function: {
           name: part.functionCall.name,
           arguments: JSON.stringify(part.functionCall.args || {})
         }
       })
+      toolCallIdx++
     } else if (part.text) {
       text += part.text
     }
@@ -547,8 +565,8 @@ app.post('/v1/chat/completions', async (c) => {
                               index: 0,
                               delta: {
                                 tool_calls: [{
-                                  index: toolCallIndex++,
-                                  id: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                                  index: toolCallIndex,
+                                  id: `call_${Date.now()}_${toolCallIndex}_${Math.random().toString(36).substr(2, 9)}`,
                                   type: 'function',
                                   function: {
                                     name: part.functionCall.name,
@@ -559,6 +577,7 @@ app.post('/v1/chat/completions', async (c) => {
                               finish_reason: null
                             }]
                           }
+                          toolCallIndex++
                           controller.enqueue(encoder.encode(`data: ${JSON.stringify(toolCallChunk)}\n\n`))
                         } else if (part.thought && part.text) {
                           // Send thought as delta.reasoning_content for UI recognition
