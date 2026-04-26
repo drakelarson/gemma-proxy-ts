@@ -562,14 +562,14 @@ app.post('/v1/chat/completions', async (c) => {
                                   function: {
                                     name: part.functionCall.name,
                                     arguments: JSON.stringify(part.functionCall.args || {})
-                                  },
-
+                                  }
                                 }]
                               },
                               finish_reason: null
                             }]
                           }
                           toolCallIndex++
+                          console.error(`[GEMINI-PROXY] DEBUG: Enqueueing tool call chunk: ${JSON.stringify(toolCallChunk)}`)
                           controller.enqueue(encoder.encode(`data: ${JSON.stringify(toolCallChunk)}\n\n`))
                         } else if (part.thought && part.text) {
                           // Send thought as delta.reasoning_content for UI recognition
