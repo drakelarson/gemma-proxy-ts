@@ -366,9 +366,12 @@ app.post('/v1/chat/completions', async (c) => {
     const tools = rest.tools ? convertTools(rest.tools) : []
     
     // Build Gemini request
+    // Only apply thinkingConfig to Gemini models, not Gemma
+    // Gemma models have built-in thinking via part.thought field
+    const isGemmaModel = geminiModel.startsWith('gemma')
     const geminiRequest: any = {
       contents,
-      generationConfig: {
+      generationConfig: isGemmaModel ? {} : {
         thinkingConfig: {
           thinkingLevel: "high"
         }
