@@ -316,9 +316,10 @@ function convertResponse(geminiResp: any, model: string, stream: boolean): any {
   } else {
     // Non-streaming format - include thoughts in reasoning_content if present
     const message: any = { role: 'assistant', content: text || "" }
-    if (thoughts) {
-      message.reasoning_content = thoughts
-    }
+    // NVIDIA-style: skip reasoning_content output to prevent long context issues
+    // if (thoughts) {
+    //   message.reasoning_content = thoughts
+    // }
     if (toolCalls.length > 0) {
       message.tool_calls = toolCalls
     }
@@ -577,20 +578,9 @@ app.post('/v1/chat/completions', async (c) => {
                           console.error(`[GEMINI-PROXY] DEBUG: Enqueueing tool call chunk: ${JSON.stringify(toolCallChunk)}`)
                           controller.enqueue(encoder.encode(`data: ${JSON.stringify(toolCallChunk)}\n\n`))
                         } else if (part.thought && part.text) {
-                          // Send thought as delta.reasoning_content for UI recognition
-                          const thoughtChunk = {
-                            id: `chatcmpl-${Date.now()}`,
-                            object: 'chat.completion.chunk',
-                            created: Math.floor(Date.now() / 1000),
-                            model: requestedModel,
-                            choices: [{
-                              index: 0,
-                              delta: { reasoning_content: part.text },
-                              finish_reason: null
-                            }]
-                          }
-                          controller.enqueue(encoder.encode(`data: ${JSON.stringify(thoughtChunk)}\n\n`))
-                          continue
+                          // NVIDIA-style: skip thought output to prevent long context issues
+                          // Model still thinks internally, we just don't emit reasoning_content
+                          console.error(`[GEMINI-PROXY] DEBUG: Skipping thought chunk (NVIDIA-style)`)
                         } else if (part.text && part.text.trim()) {
                           // Stream content chunks immediately instead
                           const contentChunk = {
