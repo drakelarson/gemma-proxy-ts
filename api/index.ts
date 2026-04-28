@@ -491,6 +491,21 @@ app.post('/v1/chat/completions', async (c) => {
             
             startHeartbeat()
             
+            // Send initial role chunk (NVIDIA-style)
+            const roleChunk = {
+              id: `chatcmpl-${Date.now()}`,
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1000),
+              model: requestedModel,
+              choices: [{
+                index: 0,
+                delta: { role: 'assistant', content: '' },
+                logprobs: null,
+                finish_reason: null
+              }]
+            }
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(roleChunk)}\n\n`))
+            
             try {
               while (true) {
                 const { done, value } = await reader.read()
@@ -510,7 +525,10 @@ app.post('/v1/chat/completions', async (c) => {
                       choices: [{
                         index: 0,
                         delta: {}, 
-                        finish_reason: finalFinishReason
+                        finish_reason: finalFinishReason,
+                        logprobs: null,
+                        stop_reason: null,
+                        token_ids: null
                       }]
                     }
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify(doneChunk)}\n\n`))
@@ -583,7 +601,8 @@ app.post('/v1/chat/completions', async (c) => {
                                   }
                                 }]
                               },
-                              finish_reason: null
+                              finish_reason: null,
+                              logprobs: null
                             }]
                           }
                           toolCallIndex++
@@ -601,7 +620,8 @@ app.post('/v1/chat/completions', async (c) => {
                               delta: {
                                 reasoning_content: part.text
                               },
-                              finish_reason: null
+                              finish_reason: null,
+                              logprobs: null
                             }]
                           }
                           console.error(`[GEMMA-PROXY] DEBUG: Emitting reasoning_content chunk`)
@@ -618,7 +638,8 @@ app.post('/v1/chat/completions', async (c) => {
                             choices: [{
                               index: 0,
                               delta: { content: part.text },
-                              finish_reason: null
+                              finish_reason: null,
+                              logprobs: null
                             }]
                           }
                           controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(contentChunk)}\n\n`))
@@ -637,7 +658,10 @@ app.post('/v1/chat/completions', async (c) => {
                           choices: [{
                             index: 0,
                             delta: {},
-                            finish_reason: 'tool_calls'
+                            finish_reason: 'tool_calls',
+                            logprobs: null,
+                            stop_reason: null,
+                            token_ids: null
                           }]
                         }
                         console.error(`[GEMMA-PROXY] DEBUG: Emitting finish chunk with tool_calls`)
