@@ -618,6 +618,7 @@ app.post('/v1/chat/completions', async (c) => {
                             choices: [{
                               index: 0,
                               delta: {
+                                content: null,
                                 reasoning_content: part.text
                               },
                               logprobs: null,
