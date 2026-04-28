@@ -370,10 +370,13 @@ app.post('/v1/chat/completions', async (c) => {
     // Gemma 4 supports thinkingLevel: "high"
     const geminiRequest: any = {
       contents,
-      generationConfig: {
-        thinkingConfig: {
-          thinkingLevel: "high"
-        }
+      generationConfig: {}
+    }
+    
+    // Only apply thinkingConfig to Gemma 4 models (supports thinking)
+    if (requestedModel.startsWith('gemma-4-')) {
+      geminiRequest.generationConfig.thinkingConfig = {
+        thinkingLevel: "high"
       }
     }
     
