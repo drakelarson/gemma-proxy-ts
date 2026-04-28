@@ -467,7 +467,6 @@ app.post('/v1/chat/completions', async (c) => {
       let buffer = ''
       let hadToolCall = false
       let emittedFinishChunk = false
-      let thoughtBuffer: string[] = []
       let toolCallIndex = 0  // Track tool call count for proper delta indexing
       
       return new Response(
