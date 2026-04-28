@@ -15,15 +15,6 @@ app.use('*', cors())
 
 app.get('/v1/models', (c) => {
   const models = [
-    { id: 'gemini-2.5-pro', object: 'model', created: 1776766009709, owned_by: 'google', gemini_model: 'gemini-2.5-pro' },
-    { id: 'gemini-2.5-flash', object: 'model', created: 1776766009709, owned_by: 'google', gemini_model: 'gemini-2.5-flash' },
-    { id: 'gemini-2.5-flash-lite', object: 'model', created: 1776766009709, owned_by: 'google', gemini_model: 'gemini-2.5-flash-lite' },
-    { id: 'gemini-3-flash-preview', object: 'model', created: 1776766009709, owned_by: 'google', gemini_model: 'gemini-3-flash-preview' },
-    { id: 'gemini-3.1-pro-preview', object: 'model', created: 1776766009709, owned_by: 'google', gemini_model: 'gemini-3.1-pro-preview' },
-    { id: 'gemini-3.1-flash-lite-preview', object: 'model', created: 1776766009709, owned_by: 'google', gemini_model: 'gemini-3.1-flash-lite-preview' },
-    { id: 'gemini-1.5-pro', object: 'model', created: 1776766009709, owned_by: 'google', gemini_model: 'gemini-1.5-pro' },
-    { id: 'gemini-1.5-flash', object: 'model', created: 1776766009709, owned_by: 'google', gemini_model: 'gemini-1.5-flash' },
-    { id: 'gemini-2.0-flash', object: 'model', created: 1776766009709, owned_by: 'google', gemini_model: 'gemini-2.0-flash' },
     { id: 'gemma-4-31b-it', object: 'model', created: 1776766009709, owned_by: 'google', gemini_model: 'gemma-4-31b-it' },
     { id: 'gemma-4-26b-a4b-it', object: 'model', created: 1776766009709, owned_by: 'google', gemini_model: 'gemma-4-26b-a4b-it' },
     { id: 'gemma-3-27b-it', object: 'model', created: 1776766009709, owned_by: 'google', gemini_model: 'gemma-3-27b-it' },
