@@ -592,9 +592,9 @@ app.post('/v1/chat/completions', async (c) => {
                               index: 0,
                               delta: {
                                 tool_calls: [{
+                                  index: toolCallIndex,
                                   id: `chatcmpl-tool-${Math.random().toString(36).substr(2, 16)}`,
                                   type: 'function',
-                                  index: toolCallIndex,
                                   function: {
                                     name: part.functionCall.name,
                                     arguments: JSON.stringify(part.functionCall.args || {})
