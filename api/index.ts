@@ -459,6 +459,7 @@ app.post('/v1/chat/completions', async (c) => {
       let buffer = ''
       let hadToolCall = false
       let emittedFinishChunk = false
+      let emittedDone = false
       let toolCallIndex = 0  // Track tool call count for proper delta indexing
       
       return new Response(
@@ -514,7 +515,9 @@ app.post('/v1/chat/completions', async (c) => {
                     }
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify(doneChunk)}\n\n`))
                   }
-                  controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+                  if (!emittedDone) {
+                    controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+                  }
                   break
                 }
                 
@@ -614,6 +617,7 @@ app.post('/v1/chat/completions', async (c) => {
                         // Emit [DONE] after finish chunk for tool calls
                         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
                         console.error('[GEMMA-PROXY] DEBUG: Emitted [DONE] after tool_calls finish')
+                        emittedDone = true
                       }
                     } catch (e) {
                       console.error('[GEMMA-PROXY] Parse error for data:', data.substring(0, 100))
