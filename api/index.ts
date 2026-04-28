@@ -610,6 +610,7 @@ app.post('/v1/chat/completions', async (c) => {
                         console.error(`[GEMMA-PROXY] DEBUG: Emitting finish chunk with tool_calls`)
                         controller.enqueue(encoder.encode(`data: ${JSON.stringify(finishChunk)}\n\n`))
                         emittedFinishChunk = true
+                        stopHeartbeat()
                       }
                     } catch (e) {
                       console.error('[GEMMA-PROXY] Parse error for data:', data.substring(0, 100))
