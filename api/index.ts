@@ -23,17 +23,6 @@ if (!API_KEY) {
 // Model name mapping (OpenAI-style to Gemini API names)
 // Use stable model names for production
 const MODEL_MAP: Record<string, string> = {
-  // Gemini models
-  'gemini-2.5-pro': 'gemini-2.5-pro',
-  'gemini-2.5-flash': 'gemini-2.5-flash',
-  'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
-  'gemini-3-flash-preview': 'gemini-3-flash-preview',
-  'gemini-3.1-pro-preview': 'gemini-3.1-pro-preview',
-  'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite-preview',
-  // Legacy Gemini
-  'gemini-1.5-pro': 'gemini-1.5-pro',
-  'gemini-1.5-flash': 'gemini-1.5-flash',
-  'gemini-2.0-flash': 'gemini-2.0-flash',
   // Gemma 4 models
   'gemma-4-31b-it': 'gemma-4-31b-it',
   'gemma-4-26b-a4b-it': 'gemma-4-26b-a4b-it',
@@ -41,7 +30,7 @@ const MODEL_MAP: Record<string, string> = {
   'gemma-3-27b-it': 'gemma-3-27b-it',
 }
 
-const DEFAULT_MODEL = 'gemini-2.5-flash'
+const DEFAULT_MODEL = 'gemma-4-31b-it'
 
 // Heartbeat for keep-alive during streaming
 const HEARTBEAT_INTERVAL_MS = 2000
