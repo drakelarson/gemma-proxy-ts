@@ -1,223 +1,232 @@
-// PATCHED VERSION: improved tool-call stability and streaming safety
 /**
- * Gemini/Gemma API Proxy - TypeScript/Hono
- * OpenAI-compatible interface for Google Gemini models
+ * OpenAI-compatible Gemini (Gemma) proxy - stable version
  */
 
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 
-const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
-const API_KEY = process.env.GEMINI_API_KEY
-
-if (!API_KEY) {
-  console.error('[GEMMA-PROXY] ERROR: No API key! Set GEMINI_API_KEY env var.')
-}
-
-const MODEL_MAP: Record<string, string> = {
-  'gemma-4-31b-it': 'gemma-4-31b-it',
-  'gemma-4-26b-a4b-it': 'gemma-4-26b-a4b-it',
-  'gemma-3-27b-it': 'gemma-3-27b-it',
-}
-
-const DEFAULT_MODEL = 'gemma-4-31b-it'
-const HEARTBEAT_INTERVAL_MS = 2000
-const HEARTBEAT_BYTE = ': keep-alive\n\n'
-
-let totalRequests = 0
-let totalErrors = 0
-
 const app = new Hono()
 app.use('*', cors())
 
-function safeJsonParse(str: any) {
-  if (!str || typeof str !== 'string') return {}
-  try {
-    return JSON.parse(str)
-  } catch {
-    return {}
+const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
+const API_KEY = process.env.GEMINI_API_KEY!
+
+if (!API_KEY) {
+  console.error('Missing GEMINI_API_KEY')
+}
+
+/* -----------------------------
+ * Model mapping
+ * ----------------------------*/
+const MODEL_MAP: Record<string, string> = {
+  'gemma-4': 'gemma-4-31b-it',
+  'gemma-3': 'gemma-3-27b-it',
+}
+
+const DEFAULT_MODEL = 'gemma-4-31b-it'
+
+/* -----------------------------
+ * Helpers: OpenAI -> Gemini
+ * ----------------------------*/
+function convertMessages(messages: any[]) {
+  const contents: any[] = []
+  let systemInstruction = ''
+
+  for (const msg of messages || []) {
+    if (msg.role === 'system') {
+      systemInstruction += msg.content + '\n'
+      continue
+    }
+
+    if (msg.role === 'assistant' || msg.role === 'user') {
+      contents.push({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }],
+      })
+    }
+  }
+
+  return { contents, systemInstruction: systemInstruction.trim() || undefined }
+}
+
+/* -----------------------------
+ * Helpers: tools conversion
+ * ----------------------------*/
+function convertTools(tools: any[]) {
+  if (!tools?.length) return []
+
+  return tools.map((t) => ({
+    name: t.function?.name,
+    description: t.function?.description || '',
+    parameters: t.function?.parameters || {},
+  }))
+}
+
+/* -----------------------------
+ * Helpers: Gemini -> OpenAI
+ * ----------------------------*/
+function convertResponse(gemini: any, model: string) {
+  const text =
+    gemini?.candidates?.[0]?.content?.parts
+      ?.map((p: any) => p.text || '')
+      .join('') || ''
+
+  return {
+    id: `chatcmpl-${Date.now()}`,
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: text,
+        },
+        finish_reason: 'stop',
+      },
+    ],
   }
 }
 
-function normalizeToolArgs(args: any) {
-  if (!args) return {}
-  if (typeof args === 'string') return safeJsonParse(args)
-  if (typeof args === 'object') return args
-  return {}
-}
-
+/* -----------------------------
+ * Streaming endpoint
+ * ----------------------------*/
 app.post('/v1/chat/completions', async (c) => {
-  totalRequests++
-
   try {
     const body = await c.req.json()
-    const { model: requestedModel, messages, stream = false, ...rest } = body
+    const {
+      model,
+      messages,
+      stream = false,
+      tools,
+    } = body
 
-    const geminiModel = MODEL_MAP[requestedModel] || DEFAULT_MODEL
+    const geminiModel = MODEL_MAP[model] || DEFAULT_MODEL
 
     const { contents, systemInstruction } = convertMessages(messages)
+    const functionDeclarations = convertTools(tools)
 
-    const tools = rest.tools ? convertTools(rest.tools) : []
-
-    const geminiRequest: any = {
+    const requestBody: any = {
       contents,
       generationConfig: {
-        temperature: 1.0,
-        topP: 0.9
+        temperature: 1,
+        topP: 0.9,
+      },
+    }
+
+    if (systemInstruction) {
+      requestBody.systemInstruction = {
+        parts: [{ text: systemInstruction }],
       }
     }
 
-    if (requestedModel.startsWith('gemma-4-')) {
-      geminiRequest.generationConfig.thinkingConfig = { thinkingLevel: 'high' }
+    if (functionDeclarations.length) {
+      requestBody.tools = [
+        { functionDeclarations },
+      ]
     }
 
-    if (systemInstruction) geminiRequest.systemInstruction = systemInstruction
-    if (tools.length > 0) geminiRequest.tools = [{ functionDeclarations: tools }]
+    const url = `${BASE_URL}/models/${geminiModel}:${
+      stream ? 'streamGenerateContent?alt=sse&key=' : 'generateContent?key='
+    }${API_KEY}`
 
-    const endpoint = stream
-      ? `streamGenerateContent?alt=sse&key=${API_KEY}`
-      : `generateContent?key=${API_KEY}`
-
-    const url = `${BASE_URL}/models/${geminiModel}:${endpoint}`
-
-    const response = await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(geminiRequest)
+      body: JSON.stringify(requestBody),
     })
 
+    /* -----------------------------
+     * Non-streaming
+     * ----------------------------*/
     if (!stream) {
-      const geminiResp = await response.json()
-      return c.json(convertResponse(geminiResp, requestedModel, false))
+      const json = await res.json()
+      return c.json(convertResponse(json, model))
     }
 
-    const reader = response.body?.getReader()
-    if (!reader) return c.json({ error: 'No stream' }, 502)
+    /* -----------------------------
+     * Streaming (SSE safe)
+     * ----------------------------*/
+    const reader = res.body?.getReader()
+    if (!reader) return c.json({ error: 'No stream' }, 500)
 
-    const encoder = new TextEncoder()
     const decoder = new TextDecoder()
 
     let buffer = ''
-    let toolCallIndex = 0
-    let hadToolCall = false
 
-    // CRITICAL FIX: accumulate tool calls before emitting
-    const pendingToolCalls: Record<number, any> = {}
+    return new Response(
+      new ReadableStream({
+        async start(controller) {
+          const send = (data: any) => {
+            controller.enqueue(
+              new TextEncoder().encode(
+                `data: ${JSON.stringify(data)}\n\n`
+              )
+            )
+          }
 
-    return new Response(new ReadableStream({
-      async start(controller) {
+          send({
+            id: `chatcmpl-${Date.now()}`,
+            object: 'chat.completion.chunk',
+            choices: [{ delta: { role: 'assistant' }, index: 0 }],
+          })
 
-        const send = (obj: any) => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`))
-        }
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
 
-        send({
-          id: `chatcmpl-${Date.now()}`,
-          object: 'chat.completion.chunk',
-          created: Math.floor(Date.now() / 1000),
-          model: requestedModel,
-          choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }]
-        })
+            buffer += decoder.decode(value, { stream: true })
 
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || ''
 
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
+            for (const line of lines) {
+              if (!line.startsWith('data:')) continue
 
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
+              const data = line.replace('data:', '').trim()
+              if (!data || data === '[DONE]') continue
 
-            const data = line.slice(6).trim()
-            if (!data || data === '[DONE]') continue
+              try {
+                const json = JSON.parse(data)
+                const part =
+                  json?.candidates?.[0]?.content?.parts?.[0]
 
-            try {
-              const chunk = JSON.parse(data)
-              const parts = chunk?.candidates?.[0]?.content?.parts || []
-
-              for (const part of parts) {
-
-                // TOOL CALL FIX: only emit AFTER normalization
-                if (part.functionCall) {
-                  hadToolCall = true
-
-                  const args = normalizeToolArgs(part.functionCall.args)
-
-                  const toolCall = {
-                    index: toolCallIndex,
-                    id: `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                    type: 'function',
-                    function: {
-                      name: part.functionCall.name,
-                      arguments: JSON.stringify(args)
-                    }
-                  }
-
-                  pendingToolCalls[toolCallIndex] = toolCall
-
+                if (part?.text) {
                   send({
                     id: `chatcmpl-${Date.now()}`,
                     object: 'chat.completion.chunk',
-                    created: Math.floor(Date.now() / 1000),
-                    model: requestedModel,
-                    choices: [{
-                      index: 0,
-                      delta: { tool_calls: [toolCall] },
-                      finish_reason: null
-                    }]
-                  })
-
-                  toolCallIndex++
-                  continue
-                }
-
-                if (part.text) {
-                  send({
-                    id: `chatcmpl-${Date.now()}`,
-                    object: 'chat.completion.chunk',
-                    created: Math.floor(Date.now() / 1000),
-                    model: requestedModel,
-                    choices: [{
-                      index: 0,
-                      delta: { content: part.text },
-                      finish_reason: null
-                    }]
+                    choices: [
+                      {
+                        index: 0,
+                        delta: { content: part.text },
+                      },
+                    ],
                   })
                 }
+              } catch {
+                // ignore malformed chunk
               }
-
-            } catch {
-              // ignore malformed chunk
             }
           }
-        }
 
-        // FINAL FIX: correct finish reason consistency
-        send({
-          id: `chatcmpl-${Date.now()}`,
-          object: 'chat.completion.chunk',
-          created: Math.floor(Date.now() / 1000),
-          model: requestedModel,
-          choices: [{
-            index: 0,
-            delta: {},
-            finish_reason: hadToolCall ? 'tool_calls' : 'stop'
-          }]
-        })
+          send({
+            id: `chatcmpl-${Date.now()}`,
+            object: 'chat.completion.chunk',
+            choices: [{ delta: {}, finish_reason: 'stop' }],
+          })
 
-        send({ usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } })
-        send('[DONE]')
-        controller.close()
+          controller.close()
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'text/event-stream',
+        },
       }
-    }), {
-      headers: { 'Content-Type': 'text/event-stream' }
-    })
-
-  } catch (e) {
-    totalErrors++
-    return c.json({ error: String(e) }, 500)
+    )
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
   }
 })
 
